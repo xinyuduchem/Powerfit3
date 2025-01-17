@@ -1,5 +1,4 @@
 
-from __future__ import absolute_import
 from struct import unpack as _unpack, pack as _pack
 import os.path
 from sys import byteorder as _BYTEORDER
@@ -9,10 +8,6 @@ import numpy as np
 from scipy.ndimage import zoom, gaussian_filter
 
 from ._powerfit import blur_points, dilate_points
-from six.moves import range
-from six.moves import zip
-import struct
-import mrcfile
 
 class Volume(object):
 
@@ -92,7 +87,7 @@ def trim(volume, cutoff, margin=2):
                 high = min(tmp.shape[0], tmp.shape[0] - n + margin)
                 break
         extent.append(slice(low, high))
-    sub_array = volume.array[tuple(extent)]
+    sub_array = volume.array[extent]
     origin = [coor_origin + volume.voxelspacing * ext.start
             for coor_origin, ext in zip(volume.origin, extent[::-1])]
     return Volume(sub_array, volume.voxelspacing, origin)
@@ -101,7 +96,7 @@ def trim(volume, cutoff, margin=2):
 def extend(volume, shape):
     new_volume = zeros(shape, volume.voxelspacing, volume.origin)
     ind = [slice(x) for x in volume.shape]
-    new_volume.array[tuple(ind)] = volume.array
+    new_volume.array[ind] = volume.array
     return new_volume
 
 
@@ -360,17 +355,17 @@ class CCP4Parser(object):
 
         density = np.fromfile(self.fhandle, dtype=self._endian + dtype).reshape(self.shape)
         if self.order == (1, 3, 2):
-            density = np.swapaxes(density, 0, 1)
+            self.density = np.swapaxes(self.density, 0, 1)
         elif self.order == (2, 1, 3):
-            density = np.swapaxes(density, 1, 2)
+            self.density = np.swapaxes(self.density, 1, 2)
         elif self.order == (2, 3, 1):
-            density = np.swapaxes(density, 2, 0)
-            density = np.swapaxes(density, 0, 1)
+            self.density = np.swapaxes(self.density, 2, 0)
+            self.density = np.swapaxes(self.density, 0, 1)
         elif self.order == (3, 1, 2):
-            density = np.swapaxes(density, 2, 1)
-            density = np.swapaxes(density, 0, 2)
+            self.density = np.swapaxes(self.density, 2, 1)
+            self.density = np.swapaxes(self.density, 0, 2)
         elif self.order == (3, 2, 1):
-            density = np.swapaxes(density, 0, 2)
+            self.density = np.swapaxes(self.density, 0, 2)
 
         # Upgrade precision to double if float, and to int32 if int16
         if mode == 1:
@@ -392,50 +387,111 @@ class MRCParser(CCP4Parser):
         return origin
 
 
-def to_mrc(fid, volume):
-    # Ensure the data array is in float32 format
-    data_array = volume.array.astype(np.float32)
+def to_mrc(fid, volume, labels=[], fmt=None):
 
-    with mrcfile.new(fid, overwrite=True) as mrc:
-        # Set the data
-        mrc.set_data(data_array)
+    if fmt is None:
+        fmt = os.path.splitext(fid)[-1][1:]
 
-        # Set the voxel size (angstroms per pixel)
-        voxel_size = volume.voxelspacing
-        mrc.voxel_size = voxel_size
+    if fmt not in ('ccp4', 'mrc', 'map'):
+        raise ValueError('Format is not recognized. Use ccp4, mrc, or map.')
 
-        # Set the start positions (nxstart, nystart, nzstart)
-        mrc.header.nxstart = int(volume.start[2])
-        mrc.header.nystart = int(volume.start[1])
-        mrc.header.nzstart = int(volume.start[0])
+    voxelspacing = volume.voxelspacing
+    nz, ny, nx = volume.shape
+    dtype = volume.array.dtype.name
+    if dtype == 'int8':
+        mode = 0
+    elif dtype in ('int16', 'int32'):
+        mode = 1
+    elif dtype in ('float32', 'float64'):
+        mode = 2
+    else:
+        raise TypeError("Data type ({:})is not supported.".format(dtype))
+    if fmt in ('ccp4', 'map'):
+        nxstart, nystart, nzstart = [int(round(x)) for x in volume.start]
+    else:
+        nxstart, nystart, nzstart = [0, 0, 0]
+    xl, yl, zl = volume.dimensions
+    alpha = beta = gamma = 90.0
+    mapc, mapr, maps = [1, 2, 3]
+    ispg = 1
+    nsymbt = 0
+    lskflg = 0
+    skwmat = [0.0]*9
+    skwtrn = [0.0]*3
+    fut_use = [0.0]*12
+    if fmt == 'mrc':
+        origin = volume.origin
+    else:
+        origin = [0, 0, 0]
+    str_map = list('MAP ')
+    if _BYTEORDER == 'little':
+        machst = list('\x44\x41\x00\x00')
+    elif _BYTEORDER == 'big':
+        machst = list('\x44\x41\x00\x00')
+    else:
+        raise ValueError("Byteorder {:} is not recognized".format(byteorder))
+    labels = [' '] * 800
+    nlabels = 0
+    min_density = volume.array.min()
+    max_density = volume.array.max()
+    mean_density = volume.array.mean()
+    std_density = volume.array.std()
 
-        # Set the cell dimensions (units in angstroms)
-        mrc.header.cella = (
-            volume.dimensions[2],
-            volume.dimensions[1],
-            volume.dimensions[0]
-        )
-
-        # Set the cell angles to 90 degrees
-        mrc.header.cellb = (90.0, 90.0, 90.0)
-
-        # Set the axis correspondence (mapc, mapr, maps)
-        mrc.header.mapc = 1  # X axis
-        mrc.header.mapr = 2  # Y axis
-        mrc.header.maps = 3  # Z axis
-
-        # Set the origin
-        mrc.header.origin = (
-            volume.origin[2],
-            volume.origin[1],
-            volume.origin[0]
-        )
-
-        # Update statistics in the header
-        mrc.update_header_stats()
-
-        # Flush changes to ensure data is written
-        mrc.flush()
+    with open(fid, 'wb') as out:
+        out.write(nx.to_bytes(4, byteorder='little'))
+        out.write(ny.to_bytes(4, byteorder='little'))
+        out.write(nz.to_bytes(4, byteorder='little'))
+        out.write(mode.to_bytes(4, byteorder='little'))
+        out.write(nxstart.to_bytes(4, byteorder='little'))
+        out.write(nystart.to_bytes(4, byteorder='little'))
+        out.write(nzstart.to_bytes(4, byteorder='little'))
+        out.write(nx.to_bytes(4, byteorder='little'))
+        out.write(ny.to_bytes(4, byteorder='little'))
+        out.write(nz.to_bytes(4, byteorder='little'))
+        out.write(xl.to_bytes(4, byteorder='little'))
+        out.write(yl.to_bytes(4, byteorder='little'))
+        out.write(zl.to_bytes(4, byteorder='little'))
+        out.write(alpha.to_bytes(4, byteorder='little'))
+        out.write(beta.to_bytes(4, byteorder='little'))
+        out.write(gamma.to_bytes(4, byteorder='little'))
+        out.write(mapc.to_bytes(4, byteorder='little'))
+        out.write(mapr.to_bytes(4, byteorder='little'))
+        out.write(maps.to_bytes(4, byteorder='little'))
+        out.write(min_density.to_bytes(4, byteorder='little'))
+        out.write(max_density.to_bytes(4, byteorder='little'))
+        out.write(mean_density.to_bytes(4, byteorder='little'))
+        out.write(ispg.to_bytes(4, byteorder='little'))
+        out.write(nsymbt.to_bytes(4, byteorder='little'))
+        out.write(lskflg.to_bytes(4, byteorder='little'))
+        for f in skwmat:
+            out.write(f.to_bytes(4, byteorder='little'))
+        for f in skwtrn:
+            out.write(f.to_bytes(4, byteorder='little'))
+        for f in fut_use:
+            out.write(f.to_bytes(4, byteorder='little'))
+        for f in origin:
+            out.write(f.to_bytes(4, byteorder='little'))
+        for c in str_map:
+            out.write(c.encode('ascii'))
+        for c in machst:
+            out.write(c.encode('ascii'))
+        out.write(std_density.to_bytes(4, byteorder='little'))
+        # max 10 labels
+        # nlabels = min(len(labels), 10)
+        # TODO labels not handled correctly
+        #for label in labels:
+        #     list_label = [c for c in label]
+        #     llabel = len(list_label)
+        #     if llabel < 80:
+        #
+        #     # max 80 characters
+        #     label = min(len(label), 80)
+        out.write(nlabels.to_bytes(4, byteorder='little'))
+        for c in labels:
+            out.write(c.encode('ascii'))
+        # write density
+        modes = [np.int8, np.int16, np.float32]
+        volume.array.astype(modes[mode]).tofile(out)
 
 
 class XPLORParser(object):
@@ -561,7 +617,7 @@ def to_xplor(outfile, volume, label=[]):
                 for x in range(nx):
                     out.write('%12.5E'%volume.array[z,y,x])
                     n += 1
-                    if (n)%6 == 0:
+                    if (n)%6 is 0:
                         out.write('\n')
             if (nx*ny)%6 > 0:
                 out.write('\n')

@@ -1,7 +1,8 @@
 #include "Python.h"
 #include "numpy/arrayobject.h"
 #include <complex.h>
-
+#include <Python.h>
+#define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 
 static PyObject *rotate_grid3d(PyObject *dummy, PyObject *args)
 {
@@ -252,11 +253,16 @@ static PyMethodDef mymethods[] = {
     {NULL, NULL, 0, NULL}
 };
 
-
-PyMODINIT_FUNC
-init_extensions(void)
-{
-    (void) Py_InitModule("_extensions", mymethods);
-    import_array();
+static struct PyModuleDef moduledef = {
+    PyModuleDef_HEAD_INIT,
+    "_extensions",
+    NULL,
+    -1,
+    mymethods
 };
 
+PyMODINIT_FUNC PyInit__extensions(void) {
+    PyObject *module = PyModule_Create(&moduledef);
+    import_array();
+    return module;
+}

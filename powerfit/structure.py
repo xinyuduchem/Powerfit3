@@ -1,12 +1,12 @@
-from __future__ import absolute_import
-from collections import defaultdict, Sequence, OrderedDict
+from collections import defaultdict, OrderedDict
+from collections.abc import Sequence
 import operator
 from string import capwords
 
 import numpy as np
 
 from .elements import ELEMENTS
-
+import io
 # records
 MODEL = 'MODEL '
 ATOM = 'ATOM  '
@@ -29,7 +29,7 @@ TER_DATA = 'id resn chain resi i'.split()
 
 def parse_pdb(infile):
 
-    if isinstance(infile, file):
+    if isinstance(infile, io.IOBase):
         f = infile
     elif isinstance(infile, str):
         f = open(infile)
@@ -73,20 +73,24 @@ def parse_pdb(infile):
 
 
 def tofile(pdb, out):
-
-    f = open(out, 'w')
+    if isinstance(out, str):
+        f = open(out, 'w')
+        should_close = True
+    else:
+        f = out
+        should_close = False
 
     nmodels = len(set(pdb['model']))
     natoms = len(pdb['id'])
-    natoms_per_model = natoms / nmodels
+    natoms_per_model = int(natoms / nmodels)
 
-    for nmodel in xrange(nmodels):
+    for nmodel in range(nmodels):
         offset = nmodel * natoms_per_model
         # write MODEL record
         if nmodels > 1:
             f.write(MODEL_LINE.format(nmodel + 1))
         prev_chain = pdb['chain'][offset]
-        for natom in xrange(natoms_per_model):
+        for natom in range(natoms_per_model):
             index = offset + natom
 
             # write TER record
@@ -113,7 +117,8 @@ def tofile(pdb, out):
             f.write(ENDMDL_LINE)
 
     f.write(END_LINE)
-    f.close()
+    if should_close:
+        f.close()
 
 
 def pdb_dict_to_array(pdb):
@@ -219,7 +224,7 @@ class Structure(object):
         else:
             raise ValueError('Logic operator not recognized.')
 
-        if not isinstance(values, Sequence) or isinstance(values, basestring):
+        if not isinstance(values, Sequence) or isinstance(values, str):
             values = (values,)
 
         selection = oper(self.data[identifier], values[0])
@@ -256,7 +261,7 @@ class Structure(object):
 
 
 def parse_mmcif(infile):
-    if isinstance(infile, file):
+    if isinstance(infile, io.IOBase):
         pass
     elif isinstance(infile, str):
         infile = open(infile)
