@@ -1,0 +1,14 @@
+appdirs==1.4.4
+backports.weakref==1.0.post1
+Cython==0.29.33
+decorator==5.1.1
+gpyfft==0.8.0
+mrcfile==1.5.3
+numpy==1.22.4
+powerfit==2.0.0
+pybind11==2.13.6
+pyFFTW==0.14.0
+pyopencl==2021.1.1
+pytools==2021.1
+scipy==1.11.1
+six==1.17.0
