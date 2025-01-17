@@ -21,7 +21,7 @@ With the transition to Python 3.10, PowerFit3 ensures modern compatibility, impr
 
 ## Installation
 
-You need to install conda first. Miniforge is recommended [Miniforge](https://github.com/conda-forge/miniforge)
+You need to install conda first. [Miniforge](https://github.com/conda-forge/miniforge) is recommended.
 
 (1) Create a conda environment by the following command:
 ```bash
