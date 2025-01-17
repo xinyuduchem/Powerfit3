@@ -3,6 +3,7 @@ env/
 packages/
 test-cases/
 analysis/
+__pycache__/
 
 *.c
 *.pyc
