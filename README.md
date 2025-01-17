@@ -32,7 +32,7 @@ or
     mamba create -n powerfit3_env python=3.9
 ```
 
-(2) Install all necessary packages by
+(2) After activating `powerfit3_env`. Install all necessary packages by
 
 ```bash
     pip install -r requirements.txt
